@@ -8,31 +8,45 @@ const groq = new Groq({
 
 export async function optimizeSchedule(todos: Todo[], workHours: WorkHours): Promise<Todo[]> {
   const currentTime = new Date();
+
   const sortedTodos = todos.sort((a, b) => {
-    const aTime = a.startTime ? new Date(a.startTime).getTime() : 0;
-    const bTime = b.startTime ? new Date(b.startTime).getTime() : 0;
-    
+    const aDeadline = new Date(a.deadline || Infinity).getTime();
+    const bDeadline = new Date(b.deadline || Infinity).getTime();
+
+    if (aDeadline !== bDeadline) {
+      return aDeadline - bDeadline; // Closer deadlines first
+    }
+
+    if (a.estimatedTime !== b.estimatedTime) {
+      return b.estimatedTime - a.estimatedTime; // Longer tasks first
+    }
+
     if (a.difficulty !== b.difficulty) {
       return (b.difficulty || 'Medium').localeCompare(a.difficulty || 'Medium');
     }
-    return aTime - bTime;
+
+    const aStartTime = a.startTime instanceof Date ? a.startTime.getTime() : 0;
+    const bStartTime = b.startTime instanceof Date ? b.startTime.getTime() : 0;
+
+    return aStartTime - bStartTime;
   });
 
   const prompt = `
     Optimize the following schedule, starting from the current time (${currentTime.toISOString()}):
-    ${sortedTodos.map(todo => `Task: ${todo.task}, Estimated Time: ${todo.estimatedTime} minutes, Difficulty: ${todo.difficulty || 'Medium'}`).join('\n')}
+    ${sortedTodos.map(todo => `Task: ${todo.task}, Estimated Time: ${todo.estimatedTime} minutes, Deadline: ${todo.deadline || 'No Deadline'}, Difficulty: ${todo.difficulty || 'Medium'}`).join('\n')}
 
     Work hours: ${workHours.start} to ${workHours.end}
 
     Optimization rules:
     1. Start scheduling from the current time (${currentTime.toISOString()}).
-    2. Prioritize harder tasks earlier in the day to avoid burnout.
-    3. Add 15-minute breaks every 2 hours of work.
-    4. Schedule a 1-hour lunch break around midday.
-    5. Schedule a 1-hour dinner break in the evening if work hours extend past 6 PM.
-    6. Ensure no task starts before ${workHours.start} or ends after ${workHours.end}.
-    7. If tasks cannot be completed today, schedule them for future days.
-    8. Ensure tasks aren't scheduled in the past.
+    2. Prioritize tasks with closer deadlines first.
+    3. Schedule longer tasks earlier in the day when possible.
+    4. Add 15-minute breaks every 2 hours of work.
+    5. Schedule a 1-hour lunch break around midday.
+    6. Schedule a 1-hour dinner break in the evening if work hours extend past 6 PM.
+    7. Ensure no task starts before ${workHours.start} or ends after ${workHours.end}.
+    8. If tasks cannot be completed today, schedule them for future days.
+    9. Ensure tasks aren't scheduled in the past and don't overlap with each other.
     
     Return the optimized schedule as a JSON array of objects, each containing:
     { "task": "Task name", "startTime": "YYYY-MM-DDTHH:mm:ss", "endTime": "YYYY-MM-DDTHH:mm:ss", "isBreak": boolean }
@@ -44,28 +58,37 @@ export async function optimizeSchedule(todos: Todo[], workHours: WorkHours): Pro
       model: "llama3-70b-8192",
     });
 
-    const optimizedSchedule = JSON.parse(completion.choices[0]?.message?.content || '[]');
-    console.log("Optimized schedule:", optimizedSchedule);
+    const aiResponse = completion.choices[0]?.message?.content;
+    const optimizedSchedule = JSON.parse(aiResponse || '[]');
 
     return optimizedSchedule.map((item: any) => {
+      const startTime = new Date(item.startTime);
+      const endTime = new Date(item.endTime);
+
+      if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) {
+        console.error('Invalid date returned by AI:', item);
+        return null;
+      }
+
       if (item.isBreak) {
         return {
           id: `break-${Date.now()}-${Math.random()}`,
           task: item.task,
-          startTime: new Date(item.startTime),
-          endTime: new Date(item.endTime),
+          startTime,
+          endTime,
           estimatedTime: 15,
           difficulty: 'Easy',
           completed: false,
         };
       }
+
       const originalTodo = todos.find(todo => todo.task === item.task);
-      return {
+      return originalTodo ? {
         ...originalTodo,
-        startTime: new Date(item.startTime),
-        endTime: new Date(item.endTime),
-      };
-    });
+        startTime,
+        endTime,
+      } : null;
+    }).filter(Boolean); 
   } catch (error) {
     console.error('Error in AI schedule optimization:', error);
     return todos; 
