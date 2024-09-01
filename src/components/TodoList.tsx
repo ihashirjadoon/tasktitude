@@ -2,6 +2,7 @@ import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Todo } from '@/components/types';
+import { Edit } from 'lucide-react';
 
 interface TodoListProps {
   todos: Todo[];
@@ -12,8 +13,12 @@ export default function TodoList({ todos, toggleTodoCompletion }: TodoListProps)
   return (
     <Card className="mt-8 shadow-lg">
       <CardHeader className="bg-purple-600 text-white">
-        <CardTitle>Todo List</CardTitle>
+        <CardTitle className="flex items-center">
+          <Edit className="mr-2" />
+          Todo List
+        </CardTitle>
       </CardHeader>
+
       <CardContent>
         <ul className="space-y-4">
           {todos.map((todo) => {

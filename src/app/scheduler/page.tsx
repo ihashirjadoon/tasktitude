@@ -1,18 +1,20 @@
 "use client";
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Button } from "@/components/ui/button";
 import Link from 'next/link';
-import { EventInput } from '@fullcalendar/core';
+import { EventInput, DateSelectArg, EventClickArg } from '@fullcalendar/core';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Calendar, Zap } from 'lucide-react';
+import { Calendar, Zap, Plus, Edit } from 'lucide-react';
+import FullCalendar from '@fullcalendar/react';
+import dayGridPlugin from '@fullcalendar/daygrid';
+import timeGridPlugin from '@fullcalendar/timegrid';
+import interactionPlugin from '@fullcalendar/interaction';
 
 import TodoForm from '@/components/TodoForm';
 import TodoList from '@/components/TodoList';
-import ScheduleCalendar from '@/components/ScheduleCalendar';
 import TaskDialog from '@/components/TaskDialog';
 import OnboardingForm from '@/components/OnboardingForm';
 import { Todo, WorkHours } from '@/components/types';
-
 
 export default function SchedulerPage() {
   const [todos, setTodos] = useState<Todo[]>([]);
@@ -67,17 +69,13 @@ export default function SchedulerPage() {
 
       const scheduledTodo: Todo = await response.json();
       setTodos(prevTodos => [...prevTodos, scheduledTodo]);
-      setEvents(prevEvents => [...prevEvents, {
-        id: scheduledTodo.id,
-        title: scheduledTodo.task,
-        start: scheduledTodo.startTime,
-        end: scheduledTodo.endTime,
-      }]);
+      updateEvents([...todos, scheduledTodo]);
     } catch (error) {
       console.error('Error scheduling task:', error);
     }
   };
-  const optimizeSchedule = async () => {
+
+  const optimizeScheduleHandler = async () => {
     try {
       const response = await fetch('/api/optimizeSchedule', {
         method: 'POST',
@@ -93,33 +91,70 @@ export default function SchedulerPage() {
 
       const optimizedTodos: Todo[] = await response.json();
       setTodos(optimizedTodos);
-      setEvents(optimizedTodos.map(todo => ({
-        id: todo.id,
-        title: todo.task,
-        start: todo.startTime,
-        end: todo.endTime,
-      })));
+      updateEvents(optimizedTodos);
     } catch (error) {
       console.error('Error optimizing schedule:', error);
     }
   };
+
+  const updateEvents = (updatedTodos: Todo[]) => {
+    setEvents(updatedTodos.map(todo => ({
+      id: todo.id,
+      title: todo.task,
+      start: todo.startTime,
+      end: todo.endTime,
+      extendedProps: { ...todo }
+    })));
+  };
   
-  const handleEventClick = (info: any) => {
-    const todo = todos.find(t => t.id === info.event.id);
+  const handleEventClick = (clickInfo: EventClickArg) => {
+    const todo = todos.find(t => t.id === clickInfo.event.id);
     if (todo) {
       setCurrentTodo(todo);
       setIsDialogOpen(true);
     }
   };
 
-  const toggleTodoCompletion = (id: string) => {
-    setTodos(todos.map(todo => 
+  const handleDateSelect = (selectInfo: DateSelectArg) => {
+    const title = prompt('Please enter a new title for your event');
+    if (title) {
+      const newEvent: EventInput = {
+        id: Date.now().toString(),
+        title,
+        start: selectInfo.startStr,
+        end: selectInfo.endStr,
+        allDay: selectInfo.allDay
+      };
+      setEvents([...events, newEvent]);
+    }
+  };
+
+  const handleEventDrop = (dropInfo: any) => {
+    const updatedEvents = events.map(event => 
+      event.id === dropInfo.event.id
+        ? { ...event, start: dropInfo.event.start, end: dropInfo.event.end }
+        : event
+    );
+    setEvents(updatedEvents);
+  };
+
+  const handleEventResize = (resizeInfo: any) => {
+    const updatedEvents = events.map(event => 
+      event.id === resizeInfo.event.id
+        ? { ...event, start: resizeInfo.event.start, end: resizeInfo.event.end }
+        : event
+    );
+    setEvents(updatedEvents);
+  };
+
+  const toggleTodoCompletion = useCallback((id: string) => {
+    setTodos(prevTodos => prevTodos.map(todo => 
       todo.id === id ? { ...todo, completed: !todo.completed } : todo
     ));
-    setEvents(events.map(event => 
+    setEvents(prevEvents => prevEvents.map(event => 
       event.id === id ? { ...event, color: event.color === 'green' ? '' : 'green' } : event
     ));
-  };
+  }, []);
 
   const testNotification = () => {
     if (Notification.permission === 'granted') {
@@ -145,7 +180,7 @@ export default function SchedulerPage() {
             <Button variant="outline" onClick={testNotification} className="mr-2 bg-white hover:bg-purple-100">
               Test Notification
             </Button>
-            <Button variant="outline" onClick={optimizeSchedule} className="mr-2 bg-white hover:bg-purple-100">
+            <Button variant="outline" onClick={optimizeScheduleHandler} className="mr-2 bg-white hover:bg-purple-100">
               <Zap className="mr-2 h-3 w-3" />
               Optimize Schedule
             </Button>
@@ -159,7 +194,7 @@ export default function SchedulerPage() {
           <Card className="col-span-1 shadow-lg">
             <CardHeader className="bg-purple-600 text-white">
               <CardTitle className="flex items-center">
-                <Calendar className="mr-2" />
+                <Plus className="mr-2" />
                 Add New Task
               </CardTitle>
             </CardHeader>
@@ -170,19 +205,46 @@ export default function SchedulerPage() {
 
           <Card className="col-span-1 lg:col-span-2 shadow-lg">
             <CardHeader className="bg-purple-600 text-white">
-              <CardTitle>Schedule</CardTitle>
+              <CardTitle className="flex items-center">
+                <Calendar className="mr-2" />
+                Schedule
+              </CardTitle>
             </CardHeader>
             <CardContent className="p-0">
-              <ScheduleCalendar 
-                events={events} 
-                workHours={workHours} 
-                handleEventClick={handleEventClick}
+              <FullCalendar
+                plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
+                headerToolbar={{
+                  left: 'prev,next today',
+                  center: 'title',
+                  right: 'dayGridMonth,timeGridWeek,timeGridDay'
+                }}
+                initialView="timeGridWeek"
+                editable={true}
+                selectable={true}
+                selectMirror={true}
+                dayMaxEvents={true}
+                weekends={true}
+                events={events}
+                select={handleDateSelect}
+                eventClick={handleEventClick}
+                eventDrop={handleEventDrop}
+                eventResize={handleEventResize}
+                slotMinTime={workHours.start}
+                slotMaxTime={workHours.end}
               />
             </CardContent>
           </Card>
         </div>
 
-        <TodoList todos={todos} toggleTodoCompletion={toggleTodoCompletion} />
+        
+        <TodoList 
+      todos={todos.sort((a, b) => {
+        const aTime = a.startTime instanceof Date ? a.startTime.getTime() : 0;
+        const bTime = b.startTime instanceof Date ? b.startTime.getTime() : 0;
+        return aTime - bTime;
+      })} 
+      toggleTodoCompletion={toggleTodoCompletion} 
+    />
 
         <TaskDialog 
           isOpen={isDialogOpen} 
