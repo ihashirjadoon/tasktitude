@@ -9,10 +9,13 @@ const groq = new Groq({
 export async function optimizeSchedule(todos: Todo[], workHours: WorkHours): Promise<Todo[]> {
   const currentTime = new Date();
   const sortedTodos = todos.sort((a, b) => {
+    const aTime = a.startTime ? new Date(a.startTime).getTime() : 0;
+    const bTime = b.startTime ? new Date(b.startTime).getTime() : 0;
+    
     if (a.difficulty !== b.difficulty) {
       return (b.difficulty || 'Medium').localeCompare(a.difficulty || 'Medium');
     }
-    return (a.startTime?.getTime() || 0) - (b.startTime?.getTime() || 0);
+    return aTime - bTime;
   });
 
   const prompt = `
@@ -128,7 +131,7 @@ function adjustTimeToWorkHours(suggestedTime: Date, workHours: WorkHours, existi
   const [startHour, startMinute] = workHours.start.split(':').map(Number);
   const [endHour, endMinute] = workHours.end.split(':').map(Number);
 
-  let adjustedTime = new Date(suggestedTime);
+  let adjustedTime = suggestedTime || new Date();
   const now = new Date();
 
   if (adjustedTime < now) {
