@@ -5,60 +5,6 @@ const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY
 });
 
-export async function suggestTimeSlot(newTodo: Todo, existingTodos: Todo[], workHours: WorkHours): Promise<Todo> {
-  const existingSchedule = existingTodos.map(todo => {
-    const startTime = formatTime(todo.startTime);
-    const endTime = formatTime(todo.endTime);
-    return `Task: ${todo.task}, Start: ${startTime}, End: ${endTime}`;
-  }).join('\n');
-
-  const prompt = `
-    Given the following existing schedule:
-    ${existingSchedule}
-
-    And work hours from ${workHours.start} to ${workHours.end},
-    suggest the best time slot for this new task:
-    Task: ${newTodo.task}, Estimated Time: ${newTodo.estimatedTime} minutes, Deadline: ${newTodo.deadline ? formatTime(newTodo.deadline) : 'No Deadline'}
-
-    Return ONLY the suggested start time in the format: YYYY-MM-DDTHH:mm:ss
-    Ensure the suggested time is within the work hours and doesn't overlap with existing tasks.
-    If there's no available slot today, suggest a time for tomorrow.
-  `;
-
-  try {
-    const completion = await groq.chat.completions.create({
-      messages: [{ role: "user", content: prompt }],
-      model: "llama3-70b-8192",
-    });
-
-    const aiResponse = completion.choices[0]?.message?.content?.trim();
-    console.log("AI suggested time:", aiResponse);
-
-    let suggestedStartTime = new Date(aiResponse || '');
-
-    if (isNaN(suggestedStartTime.getTime())) {
-      console.error("Invalid date returned by AI:", aiResponse);
-      suggestedStartTime = new Date(); 
-    }
-
-
-    const adjustedStartTime = adjustTimeToWorkHours(suggestedStartTime, workHours, existingTodos);
-    console.log("Adjusted start time:", adjustedStartTime);
-
-    return {
-      ...newTodo,
-      startTime: adjustedStartTime,
-      endTime: new Date(adjustedStartTime.getTime() + (newTodo.estimatedTime || 60) * 60000),
-    };
-  } catch (error) {
-    console.error('Error in AI time slot suggestion:', error);
-    return {
-      ...newTodo,
-      startTime: new Date(),
-      endTime: new Date(Date.now() + (newTodo.estimatedTime || 60) * 60000),
-    };
-  }
-}
 
 export async function optimizeSchedule(todos: Todo[], workHours: WorkHours): Promise<Todo[]> {
   const currentTime = new Date();
@@ -83,7 +29,8 @@ export async function optimizeSchedule(todos: Todo[], workHours: WorkHours): Pro
     5. Schedule a 1-hour dinner break in the evening if work hours extend past 6 PM.
     6. Ensure no task starts before ${workHours.start} or ends after ${workHours.end}.
     7. If tasks cannot be completed today, schedule them for future days.
-
+    8. Ensure tasks aren't scheduled in the past.
+    
     Return the optimized schedule as a JSON array of objects, each containing:
     { "task": "Task name", "startTime": "YYYY-MM-DDTHH:mm:ss", "endTime": "YYYY-MM-DDTHH:mm:ss", "isBreak": boolean }
   `;
@@ -118,7 +65,62 @@ export async function optimizeSchedule(todos: Todo[], workHours: WorkHours): Pro
     });
   } catch (error) {
     console.error('Error in AI schedule optimization:', error);
-    return todos;
+    return todos; 
+  }
+}
+
+
+export async function suggestTimeSlot(newTodo: Todo, existingTodos: Todo[], workHours: WorkHours): Promise<Todo> {
+  const existingSchedule = existingTodos.map(todo => {
+    const startTime = formatTime(todo.startTime);
+    const endTime = formatTime(todo.endTime);
+    return `Task: ${todo.task}, Start: ${startTime}, End: ${endTime}`;
+  }).join('\n');
+
+  const prompt = `
+    Given the following existing schedule:
+    ${existingSchedule}
+
+    And work hours from ${workHours.start} to ${workHours.end},
+    suggest the best time slot for this new task:
+    Task: ${newTodo.task}, Estimated Time: ${newTodo.estimatedTime} minutes, Deadline: ${newTodo.deadline ? formatTime(newTodo.deadline) : 'No Deadline'}
+
+    Return ONLY the suggested start time in the format: YYYY-MM-DDTHH:mm:ss
+    Ensure the suggested time is within the work hours, doesn't overlap with existing tasks, and isn't in the past.
+    If there's no available slot today, suggest a time for tomorrow.
+  `;
+
+  try {
+    const completion = await groq.chat.completions.create({
+      messages: [{ role: "user", content: prompt }],
+      model: "llama3-70b-8192",
+    });
+
+    const aiResponse = completion.choices[0]?.message?.content?.trim();
+    console.log("AI suggested time:", aiResponse);
+
+    let suggestedStartTime = new Date(aiResponse || '');
+
+    if (isNaN(suggestedStartTime.getTime()) || suggestedStartTime < new Date()) {
+      console.error("Invalid or past date returned by AI:", aiResponse);
+      suggestedStartTime = new Date();
+    }
+
+    const adjustedStartTime = adjustTimeToWorkHours(suggestedStartTime, workHours, existingTodos);
+    console.log("Adjusted start time:", adjustedStartTime);
+
+    return {
+      ...newTodo,
+      startTime: adjustedStartTime,
+      endTime: new Date(adjustedStartTime.getTime() + (newTodo.estimatedTime || 60) * 60000),
+    };
+  } catch (error) {
+    console.error('Error in AI time slot suggestion:', error);
+    return {
+      ...newTodo,
+      startTime: new Date(),
+      endTime: new Date(Date.now() + (newTodo.estimatedTime || 60) * 60000),
+    };
   }
 }
 
@@ -127,6 +129,12 @@ function adjustTimeToWorkHours(suggestedTime: Date, workHours: WorkHours, existi
   const [endHour, endMinute] = workHours.end.split(':').map(Number);
 
   let adjustedTime = new Date(suggestedTime);
+  const now = new Date();
+
+  if (adjustedTime < now) {
+    adjustedTime = new Date(now.getTime() + 5 * 60000); 
+  }
+
   adjustedTime.setHours(
     Math.max(startHour, Math.min(adjustedTime.getHours(), endHour)),
     adjustedTime.getMinutes(),
@@ -134,14 +142,12 @@ function adjustTimeToWorkHours(suggestedTime: Date, workHours: WorkHours, existi
     0
   );
 
-
   if (adjustedTime.getHours() < startHour || (adjustedTime.getHours() === startHour && adjustedTime.getMinutes() < startMinute)) {
     adjustedTime.setHours(startHour, startMinute, 0, 0);
   }
 
-
   while (isOverlapping(adjustedTime, existingTodos)) {
-    adjustedTime = new Date(adjustedTime.getTime() + 30 * 60000); 
+    adjustedTime = new Date(adjustedTime.getTime() + 30 * 60000);
   }
 
   if (adjustedTime.getHours() > endHour || (adjustedTime.getHours() === endHour && adjustedTime.getMinutes() > endMinute)) {

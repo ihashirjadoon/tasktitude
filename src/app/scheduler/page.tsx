@@ -106,7 +106,7 @@ export default function SchedulerPage() {
       extendedProps: { ...todo }
     })));
   };
-  
+
   const handleEventClick = (clickInfo: EventClickArg) => {
     const todo = todos.find(t => t.id === clickInfo.event.id);
     if (todo) {
@@ -130,7 +130,7 @@ export default function SchedulerPage() {
   };
 
   const handleEventDrop = (dropInfo: any) => {
-    const updatedEvents = events.map(event => 
+    const updatedEvents = events.map(event =>
       event.id === dropInfo.event.id
         ? { ...event, start: dropInfo.event.start, end: dropInfo.event.end }
         : event
@@ -139,7 +139,7 @@ export default function SchedulerPage() {
   };
 
   const handleEventResize = (resizeInfo: any) => {
-    const updatedEvents = events.map(event => 
+    const updatedEvents = events.map(event =>
       event.id === resizeInfo.event.id
         ? { ...event, start: resizeInfo.event.start, end: resizeInfo.event.end }
         : event
@@ -148,10 +148,10 @@ export default function SchedulerPage() {
   };
 
   const toggleTodoCompletion = useCallback((id: string) => {
-    setTodos(prevTodos => prevTodos.map(todo => 
+    setTodos(prevTodos => prevTodos.map(todo =>
       todo.id === id ? { ...todo, completed: !todo.completed } : todo
     ));
-    setEvents(prevEvents => prevEvents.map(event => 
+    setEvents(prevEvents => prevEvents.map(event =>
       event.id === id ? { ...event, color: event.color === 'green' ? '' : 'green' } : event
     ));
   }, []);
@@ -236,20 +236,19 @@ export default function SchedulerPage() {
           </Card>
         </div>
 
-        
-        <TodoList 
-      todos={todos.sort((a, b) => {
-        const aTime = a.startTime instanceof Date ? a.startTime.getTime() : 0;
-        const bTime = b.startTime instanceof Date ? b.startTime.getTime() : 0;
-        return aTime - bTime;
-      })} 
-      toggleTodoCompletion={toggleTodoCompletion} 
-    />
+        <TodoList
+          todos={todos.sort((a, b) => {
+            const aTime = a.startTime instanceof Date ? a.startTime.getTime() : 0;
+            const bTime = b.startTime instanceof Date ? b.startTime.getTime() : 0;
+            return aTime - bTime;
+          })}
+          toggleTodoCompletion={toggleTodoCompletion}
+        />
 
-        <TaskDialog 
-          isOpen={isDialogOpen} 
-          setIsOpen={setIsDialogOpen} 
-          todo={currentTodo} 
+        <TaskDialog
+          isOpen={isDialogOpen}
+          setIsOpen={setIsDialogOpen}
+          todo={currentTodo}
           setTodo={setCurrentTodo}
           todos={todos}
           setTodos={setTodos}
