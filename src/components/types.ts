@@ -1,4 +1,5 @@
 export interface Todo {
+    difficulty: string;
     id: string;
     task: string;
     estimatedTime: number;
